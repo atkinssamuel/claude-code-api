@@ -90,6 +90,54 @@ app = FastAPI(title="claude-code-api", version="2.0.0", lifespan=lifespan)
 # -------------------------------------------------------------------------------------
 
 
+@app.get("/")
+async def spec():
+    return {
+        "name": "claude-code-api",
+        "description": "Local HTTP proxy over the claude CLI. Send a prompt, get a response. Uses pre-warmed interactive claude sessions — no cold-start latency.",
+        "base_url": "http://localhost:8731",
+        "endpoints": {
+            "POST /query": {
+                "description": "Send a prompt to claude and get a response.",
+                "request": {
+                    "prompt": "string (required) — the prompt to send",
+                    "model": "string (optional, default 'balanced') — model tier: fast|haiku|balanced|sonnet|best|opus",
+                    "system": "string (optional) — system prompt",
+                    "max_tokens": "int (optional) — max tokens in the response",
+                },
+                "response": {
+                    "response": "string — claude's reply",
+                    "model": "string — resolved model ID (e.g. claude-sonnet-4-6)",
+                    "duration_ms": "int — wall-clock time for the request",
+                },
+                "model_tiers": {
+                    "fast / haiku": "claude-haiku-4-5-20251001",
+                    "balanced / sonnet": "claude-sonnet-4-6",
+                    "best / opus": "claude-opus-4-7",
+                },
+                "example_request": {
+                    "prompt": "What is the capital of France?",
+                    "model": "fast",
+                },
+                "example_response": {
+                    "response": "Paris",
+                    "model": "claude-haiku-4-5-20251001",
+                    "duration_ms": 1400,
+                },
+            },
+            "GET /health": {
+                "description": "Check pool status. Returns 'starting' while workers are initialising.",
+                "response": {
+                    "status": "ok | starting",
+                    "workers": {
+                        "<model-id>": {"idle": "int", "busy": "int", "ready": "int"}
+                    },
+                },
+            },
+        },
+    }
+
+
 @app.get("/health", response_model=HealthResponse)
 async def health(manager: Optional[PoolManager] = Depends(get_optional_pool_manager)):
     log.debug("health: called")
