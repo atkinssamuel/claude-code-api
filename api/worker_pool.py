@@ -2,10 +2,11 @@ import asyncio
 import json
 import logging
 import os
-import re
 import time
 from dataclasses import dataclass, field
 from typing import Optional
+
+from watchfiles import awatch
 
 from .config import (
     DEFAULT_MODEL,
@@ -18,11 +19,6 @@ from .config import (
 )
 
 log = logging.getLogger("claude_api.worker_pool")
-
-_PROMPT_RE = re.compile(r"^\s*[>❯╰│]")
-_SEPARATOR_RE = re.compile(r"^[─\-]{10,}")
-_META_RE = re.compile(r"^[✳-❀⏵]")
-_BULLET_RE = re.compile(r"^⏺ ?")
 
 
 # -------------------------------------------------------------------------------------
@@ -50,40 +46,82 @@ async def _tmux(*args: str) -> str:
     return stdout.decode(errors="replace")
 
 
-async def _capture_lines(pane_target: str) -> list[str]:
-    raw = await _tmux("capture-pane", "-p", "-t", pane_target, "-S", "-")
-    return raw.splitlines()
+def _count_assistant_text_entries(transcript_path: str) -> int:
+    """Count assistant entries that contain at least one text block."""
+    count = 0
+
+    try:
+        with open(transcript_path) as f:
+            for raw in f:
+                raw = raw.strip()
+                if not raw:
+                    continue
+
+                try:
+                    entry = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+
+                if entry.get("type") != "assistant":
+                    continue
+
+                content = entry.get("message", {}).get("content", [])
+
+                if isinstance(content, list) and any(
+                    isinstance(b, dict) and b.get("type") == "text" for b in content
+                ):
+                    count += 1
+
+    except OSError:
+        pass
+
+    return count
 
 
-def _extract_response(all_lines: list[str], prompt: str) -> str:
-    prompt_snippet = prompt[:40].strip()
+def _read_transcript(transcript_path: str) -> str:
+    """Extract the last assistant text from a claude transcript jsonl file.
 
-    # Search backwards for the last occurrence of our prompt
-    prompt_idx = -1
-    for i in range(len(all_lines) - 1, -1, -1):
-        if prompt_snippet in all_lines[i]:
-            prompt_idx = i
-            break
+    Entries use top-level "type": "assistant" with content under entry["message"]["content"].
+    """
+    last_text = ""
 
-    if prompt_idx == -1:
-        return ""
+    try:
+        with open(transcript_path) as f:
+            for raw in f:
+                raw = raw.strip()
+                if not raw:
+                    continue
 
-    # Collect lines after the prompt until the next prompt indicator or separator
-    response_lines: list[str] = []
-    for line in all_lines[prompt_idx + 1 :]:
-        if _PROMPT_RE.match(line) or _SEPARATOR_RE.match(line):
-            break
-        if _META_RE.match(line):
-            continue
-        response_lines.append(_BULLET_RE.sub("", line))
+                try:
+                    entry = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
 
-    # Strip leading/trailing blanks
-    while response_lines and not response_lines[0].strip():
-        response_lines.pop(0)
-    while response_lines and not response_lines[-1].strip():
-        response_lines.pop()
+                if entry.get("type") != "assistant":
+                    continue
 
-    return "\n".join(response_lines).strip()
+                content = entry.get("message", {}).get("content", [])
+
+                if isinstance(content, str):
+                    if content:
+                        last_text = content
+                elif isinstance(content, list):
+                    parts = [
+                        block["text"]
+                        for block in content
+                        if isinstance(block, dict) and block.get("type") == "text"
+                    ]
+                    if parts:
+                        last_text = "\n".join(parts)
+
+    except OSError as e:
+        log.error("_read_transcript: path=%s error=%s", transcript_path, e)
+
+    log.debug(
+        "_read_transcript: path=%s response_len=%d", transcript_path, len(last_text)
+    )
+
+    return last_text
 
 
 # -------------------------------------------------------------------------------------
@@ -100,6 +138,9 @@ class TmuxWorker:
     settings_path: str
     prompt_file: str
     busy: bool = False
+    last_response: str = ""
+    last_transcript_path: str = ""
+    assistant_entries_before: int = 0
     startup_event: asyncio.Event = field(default_factory=asyncio.Event)
     completion_event: asyncio.Event = field(default_factory=asyncio.Event)
 
@@ -200,14 +241,21 @@ class PoolManager:
 
         pool.signal_worker_ready(worker)
 
-    def signal_worker_done(self, worker_id: int) -> None:
+    def signal_worker_done(self, worker_id: int, transcript_path: str) -> None:
         worker = self._worker_registry.get(worker_id)
 
         if worker is None:
             log.warning("signal_worker_done: unknown worker_id=%d", worker_id)
             return
 
-        log.debug("signal_worker_done: worker=%d", worker_id)
+        worker.last_transcript_path = transcript_path
+
+        log.debug(
+            "signal_worker_done: worker=%d transcript=%s",
+            worker_id,
+            transcript_path,
+        )
+
         worker.completion_event.set()
 
     async def query(
@@ -409,21 +457,73 @@ class PoolManager:
             effective_prompt[:80],
         )
 
+        if worker.last_transcript_path:
+            worker.assistant_entries_before = await asyncio.to_thread(
+                _count_assistant_text_entries, worker.last_transcript_path
+            )
+        else:
+            worker.assistant_entries_before = 0
+
         await self._send_prompt(worker, effective_prompt)
 
-        log.debug("_run: worker=%d prompt sent, awaiting Stop hook", worker.id)
+        log.debug("_run: worker=%d prompt sent, awaiting Stop hook entries_before=%d", worker.id, worker.assistant_entries_before)
 
         await worker.completion_event.wait()
 
-        all_lines = await _capture_lines(worker.pane_target)
-        response = _extract_response(all_lines, effective_prompt)
+        response = await self._read_response(worker)
 
         log.debug(
-            "_run: worker=%d all_lines=%d response_len=%d",
+            "_run: worker=%d response_len=%d",
             worker.id,
-            len(all_lines),
             len(response),
         )
+
+        return response
+
+    async def _read_response(self, worker: TmuxWorker) -> str:
+        transcript_path = worker.last_transcript_path
+        entries_before = worker.assistant_entries_before
+
+        if not transcript_path:
+            log.warning("_read_response: worker=%d no transcript_path", worker.id)
+            return ""
+
+        response = await asyncio.to_thread(_read_transcript, transcript_path)
+        if _count_assistant_text_entries(transcript_path) > entries_before:
+            log.debug(
+                "_read_response: worker=%d transcript ready immediately response_len=%d",
+                worker.id,
+                len(response),
+            )
+            return response
+
+        # Transcript write lags slightly behind the Stop hook — watch for the update
+        log.debug(
+            "_read_response: worker=%d transcript not yet updated, watching path=%s entries_before=%d",
+            worker.id,
+            transcript_path,
+            entries_before,
+        )
+
+        try:
+            async with asyncio.timeout(10.0):
+                async for _ in awatch(transcript_path):
+                    if _count_assistant_text_entries(transcript_path) > entries_before:
+                        response = await asyncio.to_thread(
+                            _read_transcript, transcript_path
+                        )
+                        log.debug(
+                            "_read_response: worker=%d got response via watch response_len=%d",
+                            worker.id,
+                            len(response),
+                        )
+                        return response
+        except TimeoutError:
+            log.error(
+                "_read_response: worker=%d timeout waiting for transcript update path=%s",
+                worker.id,
+                transcript_path,
+            )
 
         return response
 

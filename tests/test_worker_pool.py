@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from api.config import MODELS
-from api.worker_pool import ModelPool, PoolManager, TmuxWorker, _extract_response
+from api.worker_pool import ModelPool, PoolManager, TmuxWorker, _read_transcript
 
 
 # -------------------------------------------------------------------------------------
@@ -190,14 +190,15 @@ async def test_signal_worker_done():
     worker = manager._worker_registry[0]
     worker.completion_event.clear()
 
-    manager.signal_worker_done(0)
+    manager.signal_worker_done(0, "/tmp/fake-transcript.jsonl")
 
     assert worker.completion_event.is_set()
+    assert worker.last_transcript_path == "/tmp/fake-transcript.jsonl"
 
 
 @pytest.mark.asyncio
 async def test_run_uses_send_prompt_then_awaits_hook():
-    """_run: sends prompt, waits on completion_event, then captures lines."""
+    """_run: sends prompt, waits for completion_event, reads response via _read_response."""
     manager = _make_manager()
     worker = manager._worker_registry[0]
 
@@ -206,131 +207,80 @@ async def test_run_uses_send_prompt_then_awaits_hook():
     async def patched_send(w, prompt):
         nonlocal send_called
         send_called = True
-
-        # Fire the Stop hook synchronously so _run can proceed
+        w.last_transcript_path = "/tmp/fake.jsonl"
         w.completion_event.set()
-
-    lines_calls: list[str] = []
-
-    async def patched_capture(pane_target):
-        lines_calls.append(pane_target)
-        return ["old line", "the prompt", "the answer", "❯ "]
 
     with (
         patch.object(manager, "_send_prompt", patched_send),
-        patch("api.worker_pool._capture_lines", patched_capture),
+        patch.object(manager, "_read_response", AsyncMock(return_value="the answer")),
     ):
         response = await manager._run(worker, "the prompt", None)
 
     assert send_called
-    assert len(lines_calls) == 1
     assert response == "the answer"
 
 
 # -------------------------------------------------------------------------------------
-# ---------------------------- response extraction tests ------------------------------
+# ----------------------------- transcript parsing tests ------------------------------
 # -------------------------------------------------------------------------------------
 
 
-def test_extract_response_basic():
-    all_lines = [
-        "old line 1",
-        "old line 2",
-        "What is 2+2?",
-        "2 + 2 = 4",
-        "❯ ",
-    ]
-    result = _extract_response(all_lines, "What is 2+2?")
-    assert result == "2 + 2 = 4"
+def _assistant_entry(text: str) -> str:
+    import json
+
+    return json.dumps(
+        {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": text}]}}
+    )
 
 
-def test_extract_response_strips_leading_blanks():
-    all_lines = [
-        "old",
-        "prompt text here",
-        "",
-        "the answer",
-        "❯ ",
-    ]
-    result = _extract_response(all_lines, "prompt text here")
-    assert result == "the answer"
+def test_read_transcript_basic(tmp_path):
+    transcript = tmp_path / "t.jsonl"
+    transcript.write_text(
+        '{"type": "user", "message": {"role": "user", "content": "hi"}}\n'
+        + _assistant_entry("hello")
+        + "\n"
+    )
+    assert _read_transcript(str(transcript)) == "hello"
 
 
-def test_extract_response_multiline():
-    all_lines = [
-        "old",
-        "my prompt",
-        "line one",
-        "line two",
-        "line three",
-        "❯ ",
-    ]
-    result = _extract_response(all_lines, "my prompt")
-    assert "line one" in result
-    assert "line three" in result
+def test_read_transcript_content_block(tmp_path):
+    transcript = tmp_path / "t.jsonl"
+    transcript.write_text(_assistant_entry("pong") + "\n")
+    assert _read_transcript(str(transcript)) == "pong"
 
 
-def test_extract_response_no_prompt_echo():
-    """Returns empty when prompt not found in pane."""
-    all_lines = [
-        "something unrelated",
-        "actual response",
-        "❯ ",
-    ]
-    result = _extract_response(all_lines, "completely different prompt xyz123")
+def test_read_transcript_skips_thinking_blocks(tmp_path):
+    import json
+
+    transcript = tmp_path / "t.jsonl"
+    entry = json.dumps(
+        {
+            "type": "assistant",
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {"type": "thinking", "thinking": "...", "signature": "x"},
+                    {"type": "text", "text": "pong"},
+                ],
+            },
+        }
+    )
+    transcript.write_text(entry + "\n")
+    assert _read_transcript(str(transcript)) == "pong"
+
+
+def test_read_transcript_returns_last_assistant(tmp_path):
+    transcript = tmp_path / "t.jsonl"
+    transcript.write_text(
+        _assistant_entry("first")
+        + "\n"
+        + '{"type": "user", "message": {"role": "user", "content": "follow-up"}}\n'
+        + _assistant_entry("second")
+        + "\n"
+    )
+    assert _read_transcript(str(transcript)) == "second"
+
+
+def test_read_transcript_missing_file():
+    result = _read_transcript("/tmp/does-not-exist-xyz.jsonl")
     assert result == ""
-
-
-def test_extract_response_prompt_indicator_variants():
-    for indicator in [">", "> ", "╰─>", "│", "❯", "❯ "]:
-        all_lines = ["old", "prompt", "response text", indicator]
-        result = _extract_response(all_lines, "prompt")
-        assert "response text" in result, f"indicator={indicator!r}"
-        assert indicator not in result, f"indicator={indicator!r} not stripped"
-
-
-def test_extract_response_strips_bullet_prefix():
-    all_lines = [
-        "my prompt",
-        "⏺ pong",
-        "❯ ",
-    ]
-    result = _extract_response(all_lines, "my prompt")
-    assert result == "pong"
-
-
-def test_extract_response_skips_meta_lines():
-    all_lines = [
-        "my prompt",
-        "⏺ the answer",
-        "✻ Sautéed for 1s",
-        "❯ ",
-    ]
-    result = _extract_response(all_lines, "my prompt")
-    assert result == "the answer"
-    assert "Sautéed" not in result
-
-
-def test_extract_response_separator_stops_collection():
-    all_lines = [
-        "my prompt",
-        "⏺ the answer",
-        "──────────────────────────────",
-        "❯ ",
-    ]
-    result = _extract_response(all_lines, "my prompt")
-    assert result == "the answer"
-
-
-def test_extract_response_uses_last_occurrence():
-    """When the same prompt appears twice, extract after the last one."""
-    all_lines = [
-        "my prompt",
-        "first answer",
-        "❯ ",
-        "my prompt",
-        "second answer",
-        "❯ ",
-    ]
-    result = _extract_response(all_lines, "my prompt")
-    assert result == "second answer"

@@ -173,7 +173,14 @@ async def internal_hook(
     if event == "start":
         manager.signal_worker_ready(worker_id)
     elif event == "stop":
-        manager.signal_worker_done(worker_id)
+        body = await request.json() if request else {}
+        transcript_path = body.get("transcript_path", "")
+        log.debug(
+            "internal_hook: stop worker_id=%d transcript_path=%s",
+            worker_id,
+            transcript_path,
+        )
+        manager.signal_worker_done(worker_id, transcript_path)
     else:
         log.warning("internal_hook: unknown event=%s worker_id=%d", event, worker_id)
 

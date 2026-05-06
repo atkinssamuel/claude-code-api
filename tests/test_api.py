@@ -1,6 +1,6 @@
 import asyncio
 from typing import Optional
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 import pytest
 import pytest_asyncio
@@ -235,7 +235,11 @@ async def test_internal_hook_stop(client):
     manager._worker_registry[0].completion_event.clear()
     app.dependency_overrides[get_optional_pool_manager] = lambda: manager
 
-    resp = await client.post("/internal/hook?worker_id=0&event=stop")
+    with patch("api.worker_pool._read_transcript", return_value="ok"):
+        resp = await client.post(
+            "/internal/hook?worker_id=0&event=stop",
+            json={"transcript_path": "/tmp/fake.jsonl"},
+        )
 
     app.dependency_overrides.clear()
 
