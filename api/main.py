@@ -3,12 +3,13 @@ import logging
 import logging.handlers
 import os
 from contextlib import asynccontextmanager
+from typing import Optional
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 
-from .config import POOL_SIZE
-from .models import HealthResponse, QueryRequest, QueryResponse, WorkerStatus
-from .worker_pool import WorkerPool
+from .config import DEFAULT_MODEL, MODEL_MAP, MODELS
+from .models import HealthResponse, ModelWorkerStatus, QueryRequest, QueryResponse
+from .worker_pool import PoolManager
 
 # -------------------------------------------------------------------------------------
 # ----------------------------------- logging -----------------------------------------
@@ -46,34 +47,43 @@ log = logging.getLogger("claude_api.main")
 # ------------------------------------- app -------------------------------------------
 # -------------------------------------------------------------------------------------
 
-_pool: WorkerPool | None = None
+_pool_manager: Optional[PoolManager] = None
 
 
-def get_pool() -> WorkerPool:
-    if _pool is None:
-        raise HTTPException(status_code=503, detail="pool not initialized")
-    return _pool
+def get_pool_manager() -> PoolManager:
+    if _pool_manager is None:
+        raise HTTPException(status_code=503, detail="pool not ready")
+    return _pool_manager
 
 
-def get_optional_pool() -> WorkerPool | None:
-    return _pool
+def get_optional_pool_manager() -> Optional[PoolManager]:
+    return _pool_manager
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _pool
+    global _pool_manager
 
-    log.info("lifespan: starting pool size=%d", POOL_SIZE)
-    _pool = WorkerPool(size=POOL_SIZE)
-    log.info("lifespan: pool ready idle=%d", _pool.idle_count)
+    log.info("lifespan: creating pool manager")
+    _pool_manager = PoolManager()
+
+    # Launch workers in background so the HTTP server is already listening
+    # when SessionStart hooks POST back in.
+    asyncio.create_task(_pool_manager.start())
+
+    log.info("lifespan: pool manager started, workers launching in background")
 
     yield
 
     log.info("lifespan: shutting down")
-    _pool = None
+
+    if _pool_manager is not None:
+        await _pool_manager.stop()
+
+    _pool_manager = None
 
 
-app = FastAPI(title="claude-code-api", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="claude-code-api", version="2.0.0", lifespan=lifespan)
 
 # -------------------------------------------------------------------------------------
 # ----------------------------------- routes ------------------------------------------
@@ -81,35 +91,42 @@ app = FastAPI(title="claude-code-api", version="1.0.0", lifespan=lifespan)
 
 
 @app.get("/health", response_model=HealthResponse)
-async def health(pool: WorkerPool | None = Depends(get_optional_pool)):
+async def health(manager: Optional[PoolManager] = Depends(get_optional_pool_manager)):
     log.debug("health: called")
 
-    if pool is None:
-        log.warning("health: pool not initialized")
-        return HealthResponse(status="starting", workers=WorkerStatus(idle=0, busy=0))
+    if manager is None:
+        return HealthResponse(status="starting", workers={})
 
-    result = HealthResponse(
-        status="ok",
-        workers=WorkerStatus(idle=pool.idle_count, busy=pool.busy_count),
-    )
+    workers: dict[str, ModelWorkerStatus] = {}
 
-    log.debug("health: idle=%d busy=%d", result.workers.idle, result.workers.busy)
+    for model, pool in manager.pools.items():
+        workers[model] = ModelWorkerStatus(
+            idle=pool.idle_count,
+            busy=pool.busy_count,
+            ready=pool.ready_count,
+        )
+
+    result = HealthResponse(status="ok", workers=workers)
+
+    log.debug("health: pools=%d", len(workers))
 
     return result
 
 
 @app.post("/query", response_model=QueryResponse)
-async def query(req: QueryRequest, pool: WorkerPool = Depends(get_pool)):
+async def query(
+    req: QueryRequest,
+    manager: PoolManager = Depends(get_pool_manager),
+):
     log.debug(
-        "query: prompt=%s model=%s max_tokens=%s system=%s",
+        "query: prompt=%s model=%s system=%s",
         req.prompt[:80],
         req.model,
-        req.max_tokens,
         req.system[:80] if req.system else None,
     )
 
     try:
-        response, resolved_model, duration_ms = await pool.query(
+        response, resolved_model, duration_ms = await manager.query(
             prompt=req.prompt,
             model=req.model,
             max_tokens=req.max_tokens,
@@ -136,3 +153,28 @@ async def query(req: QueryRequest, pool: WorkerPool = Depends(get_pool)):
     )
 
     return result
+
+
+@app.post("/internal/hook")
+async def internal_hook(
+    worker_id: int = Query(...),
+    event: str = Query(...),
+    request: Request = None,
+    manager: Optional[PoolManager] = Depends(get_optional_pool_manager),
+):
+    log.debug("internal_hook: worker_id=%d event=%s", worker_id, event)
+
+    if manager is None:
+        log.warning(
+            "internal_hook: manager not ready, ignoring worker_id=%d", worker_id
+        )
+        return {}
+
+    if event == "start":
+        manager.signal_worker_ready(worker_id)
+    elif event == "stop":
+        manager.signal_worker_done(worker_id)
+    else:
+        log.warning("internal_hook: unknown event=%s worker_id=%d", event, worker_id)
+
+    return {}

@@ -16,11 +16,12 @@ class QueryResponse(BaseModel):
     duration_ms: int
 
 
-class WorkerStatus(BaseModel):
+class ModelWorkerStatus(BaseModel):
     idle: int
     busy: int
+    ready: int
 
 
 class HealthResponse(BaseModel):
     status: str
-    workers: WorkerStatus
+    workers: dict[str, ModelWorkerStatus]

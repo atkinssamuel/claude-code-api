@@ -1,10 +1,10 @@
 import asyncio
-import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from api.worker_pool import Worker, WorkerPool
+from api.config import MODELS
+from api.worker_pool import ModelPool, PoolManager, TmuxWorker, _extract_response
 
 
 # -------------------------------------------------------------------------------------
@@ -12,200 +12,72 @@ from api.worker_pool import Worker, WorkerPool
 # -------------------------------------------------------------------------------------
 
 
-def _stream_bytes(*events: dict) -> bytes:
-    return b"\n".join(json.dumps(e).encode() for e in events) + b"\n"
+def _make_manager(workers_per_model: int = 1) -> PoolManager:
+    """PoolManager with pre-built, pre-ready workers — no tmux calls needed."""
+    manager = PoolManager()
+    worker_id = 0
+
+    for model in MODELS:
+        short = model.split("-")[1]
+        workers: list[TmuxWorker] = []
+
+        for i in range(workers_per_model):
+            worker = TmuxWorker(
+                id=worker_id,
+                model=model,
+                window_name=f"{short}-{i}",
+                pane_target=f"test:{short}-{i}",
+                settings_path=f"/tmp/test-worker-{worker_id}.json",
+                prompt_file=f"/tmp/test-prompt-{worker_id}.txt",
+            )
+            worker.startup_event.set()
+            workers.append(worker)
+            manager._worker_registry[worker_id] = worker
+            worker_id += 1
+
+        manager._pools[model] = ModelPool(model=model, workers=workers)
+
+    return manager
 
 
-def _success_stream(text: str, session_id: str = "sess-x") -> bytes:
-    return _stream_bytes(
-        {"type": "system", "subtype": "init", "session_id": session_id},
-        {
-            "type": "assistant",
-            "message": {"content": [{"type": "text", "text": text}]},
-        },
-        {
-            "type": "result",
-            "subtype": "success",
-            "result": text,
-            "session_id": session_id,
-        },
-    )
+def _instant_run(response: str = "ok"):
+    """Returns an async _run replacement that completes immediately."""
 
+    async def _inner(worker: TmuxWorker, prompt: str, system) -> str:
+        return response
 
-class _AsyncLineReader:
-    def __init__(self, data: bytes):
-        self._lines = iter(line + b"\n" for line in data.splitlines())
-
-    def __aiter__(self):
-        return self
-
-    async def __anext__(self) -> bytes:
-        try:
-            return next(self._lines)
-        except StopIteration:
-            raise StopAsyncIteration
-
-
-def _mock_proc(stdout_data: bytes, exit_code: int = 0, stderr: bytes = b""):
-    proc = MagicMock()
-    proc.stdout = _AsyncLineReader(stdout_data)
-    proc.stderr = AsyncMock()
-    proc.stderr.read = AsyncMock(return_value=stderr)
-    proc.wait = AsyncMock(return_value=exit_code)
-    return proc
+    return _inner
 
 
 # -------------------------------------------------------------------------------------
-# ----------------------------------- tests -------------------------------------------
+# ----------------------------------- unit tests --------------------------------------
 # -------------------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_worker_pool_idle_count():
-    pool = WorkerPool(size=3)
-    assert pool.idle_count == 3
-    assert pool.busy_count == 0
+async def test_idle_and_ready_counts():
+    manager = _make_manager(workers_per_model=2)
+
+    for model in MODELS:
+        pool = manager.get_pool(model)
+        assert pool.idle_count == 2
+        assert pool.busy_count == 0
+        assert pool.ready_count == 2
 
 
 @pytest.mark.asyncio
-async def test_worker_pool_single_query():
-    pool = WorkerPool(size=2)
+async def test_query_routes_to_correct_model():
+    manager = _make_manager()
 
-    with patch(
-        "asyncio.create_subprocess_exec",
-        return_value=_mock_proc(_success_stream("hi there")),
-    ):
-        text, model, duration_ms = await pool.query("say hi", model="balanced")
+    with patch.object(manager, "_run", _instant_run("4")):
+        _, resolved_model, _ = await manager.query("What is 2+2?", model="fast")
 
-    assert text == "hi there"
-    assert model == "claude-sonnet-4-6"
-    assert duration_ms >= 0
+    assert resolved_model == "claude-haiku-4-5-20251001"
 
 
 @pytest.mark.asyncio
-async def test_worker_session_continuity():
-    """Second call on the same worker uses --resume with the previous session_id."""
-    pool = WorkerPool(size=1)
-
-    with patch(
-        "asyncio.create_subprocess_exec",
-        return_value=_mock_proc(_success_stream("first", session_id="sess-abc")),
-    ):
-        await pool.query("first prompt")
-
-    assert pool._workers[0].session_id == "sess-abc"
-
-    with patch(
-        "asyncio.create_subprocess_exec",
-        return_value=_mock_proc(_success_stream("second", session_id="sess-abc")),
-    ) as mock_exec:
-        await pool.query("second prompt")
-
-    call_args = list(mock_exec.call_args[0])
-    assert "--resume" in call_args
-    idx = call_args.index("--resume")
-    assert call_args[idx + 1] == "sess-abc"
-
-
-@pytest.mark.asyncio
-async def test_session_not_resumed_when_system_prompt():
-    """System prompt forces a fresh session (no --resume)."""
-    pool = WorkerPool(size=1)
-    pool._workers[0].session_id = "old-sess"
-
-    with patch(
-        "asyncio.create_subprocess_exec",
-        return_value=_mock_proc(_success_stream("ok")),
-    ) as mock_exec:
-        await pool.query("hi", system="You are a pirate.")
-
-    call_args = list(mock_exec.call_args[0])
-    assert "--resume" not in call_args
-
-
-@pytest.mark.asyncio
-async def test_worker_pool_concurrent_limit():
-    """Exactly POOL_SIZE workers run concurrently; extras queue."""
-    pool = WorkerPool(size=2)
-    barrier = asyncio.Event()
-    started: list[int] = []
-
-    async def slow_proc(*args, **kwargs):
-        started.append(1)
-        await barrier.wait()
-        return _mock_proc(_success_stream("ok"))
-
-    with patch("asyncio.create_subprocess_exec", side_effect=slow_proc):
-        tasks = [asyncio.create_task(pool.query(f"q{i}")) for i in range(3)]
-
-        await asyncio.sleep(0.05)
-
-        assert len(started) == 2
-        assert pool.busy_count == 2
-
-        barrier.set()
-        results = await asyncio.gather(*tasks)
-
-    assert len(results) == 3
-    for text, model, _ in results:
-        assert text == "ok"
-
-
-@pytest.mark.asyncio
-async def test_worker_pool_timeout():
-    pool = WorkerPool(size=1)
-
-    async def slow_proc(*args, **kwargs):
-        proc = MagicMock()
-
-        async def slow_iter():
-            await asyncio.sleep(999)
-            return
-            yield
-
-        proc.stdout = slow_iter()
-        proc.stderr = AsyncMock()
-        proc.stderr.read = AsyncMock(return_value=b"")
-        proc.wait = AsyncMock(return_value=0)
-        return proc
-
-    with patch("asyncio.create_subprocess_exec", side_effect=slow_proc):
-        with patch("api.worker_pool.REQUEST_TIMEOUT_S", 0.05):
-            with pytest.raises(asyncio.TimeoutError):
-                await pool.query("hi")
-
-    assert pool.idle_count == 1
-
-
-@pytest.mark.asyncio
-async def test_worker_released_on_error():
-    pool = WorkerPool(size=1)
-
-    with patch(
-        "asyncio.create_subprocess_exec",
-        return_value=_mock_proc(
-            _stream_bytes(
-                {"type": "system", "subtype": "init", "session_id": "s"},
-                {
-                    "type": "result",
-                    "subtype": "error",
-                    "error": "boom",
-                    "session_id": "s",
-                },
-            ),
-            exit_code=1,
-        ),
-    ):
-        with pytest.raises(RuntimeError, match="boom"):
-            await pool.query("hi")
-
-    assert pool.idle_count == 1
-
-
-@pytest.mark.asyncio
-async def test_model_tier_mapping():
-    pool = WorkerPool(size=1)
-    tier_model = {
+async def test_model_tier_aliases():
+    tier_to_model = {
         "fast": "claude-haiku-4-5-20251001",
         "haiku": "claude-haiku-4-5-20251001",
         "balanced": "claude-sonnet-4-6",
@@ -214,12 +86,251 @@ async def test_model_tier_mapping():
         "opus": "claude-opus-4-7",
     }
 
-    for tier, expected in tier_model.items():
-        with patch(
-            "asyncio.create_subprocess_exec",
-            return_value=_mock_proc(_success_stream("ok")),
-        ) as mock_exec:
-            _, resolved, _ = await pool.query("hi", model=tier)
+    manager = _make_manager()
 
-        assert resolved == expected, f"tier={tier}"
-        assert expected in list(mock_exec.call_args[0]), f"tier={tier}"
+    for tier, expected_model in tier_to_model.items():
+        with patch.object(manager, "_run", _instant_run("ok")):
+            _, resolved, _ = await manager.query("hi", model=tier)
+
+        assert resolved == expected_model, f"tier={tier}"
+
+
+@pytest.mark.asyncio
+async def test_worker_released_after_query():
+    manager = _make_manager()
+    pool = manager.get_pool("claude-haiku-4-5-20251001")
+
+    with patch.object(manager, "_run", _instant_run("answer")):
+        await manager.query("hi", model="fast")
+
+    assert pool.idle_count == 1
+    assert pool.busy_count == 0
+
+
+@pytest.mark.asyncio
+async def test_worker_released_on_error():
+    manager = _make_manager()
+    pool = manager.get_pool("claude-haiku-4-5-20251001")
+
+    async def failing_run(worker, prompt, system):
+        raise RuntimeError("boom")
+
+    with patch.object(manager, "_run", failing_run):
+        with pytest.raises(RuntimeError):
+            await manager.query("hi", model="fast")
+
+    assert pool.idle_count == 1
+
+
+@pytest.mark.asyncio
+async def test_pool_queues_when_exhausted():
+    """Extra requests wait and succeed once a slot is freed."""
+    manager = _make_manager(workers_per_model=1)
+    pool = manager.get_pool("claude-haiku-4-5-20251001")
+    gate = asyncio.Event()
+
+    async def gated_run(worker, prompt, system):
+        await gate.wait()
+        return "ok"
+
+    with patch.object(manager, "_run", gated_run):
+        tasks = [
+            asyncio.create_task(manager.query(f"q{i}", model="fast")) for i in range(3)
+        ]
+
+        await asyncio.sleep(0)
+        assert pool.busy_count == 1
+
+        gate.set()
+        results = await asyncio.gather(*tasks)
+
+    assert len(results) == 3
+    assert all(r[0] == "ok" for r in results)
+    assert pool.idle_count == 1
+
+
+@pytest.mark.asyncio
+async def test_timeout_releases_worker():
+    manager = _make_manager()
+    pool = manager.get_pool("claude-haiku-4-5-20251001")
+
+    async def slow_run(worker, prompt, system):
+        await asyncio.sleep(999)
+        return "ok"
+
+    with (
+        patch.object(manager, "_run", slow_run),
+        patch("api.worker_pool.REQUEST_TIMEOUT_S", 0.05),
+    ):
+        with pytest.raises(asyncio.TimeoutError):
+            await manager.query("hi", model="fast")
+
+    assert pool.idle_count == 1
+
+
+@pytest.mark.asyncio
+async def test_signal_worker_ready():
+    manager = _make_manager(workers_per_model=1)
+
+    for w in manager._worker_registry.values():
+        w.startup_event.clear()
+
+    haiku_pool = manager.get_pool("claude-haiku-4-5-20251001")
+    assert haiku_pool.ready_count == 0
+
+    manager.signal_worker_ready(0)
+
+    assert haiku_pool.ready_count == 1
+    assert haiku_pool.idle_count == 1
+
+
+@pytest.mark.asyncio
+async def test_signal_worker_done():
+    manager = _make_manager()
+    worker = manager._worker_registry[0]
+    worker.completion_event.clear()
+
+    manager.signal_worker_done(0)
+
+    assert worker.completion_event.is_set()
+
+
+@pytest.mark.asyncio
+async def test_run_uses_send_prompt_then_awaits_hook():
+    """_run: sends prompt, waits on completion_event, then captures lines."""
+    manager = _make_manager()
+    worker = manager._worker_registry[0]
+
+    send_called = False
+
+    async def patched_send(w, prompt):
+        nonlocal send_called
+        send_called = True
+
+        # Fire the Stop hook synchronously so _run can proceed
+        w.completion_event.set()
+
+    lines_calls: list[str] = []
+
+    async def patched_capture(pane_target):
+        lines_calls.append(pane_target)
+        return ["old line", "the prompt", "the answer", "❯ "]
+
+    with (
+        patch.object(manager, "_send_prompt", patched_send),
+        patch("api.worker_pool._capture_lines", patched_capture),
+    ):
+        response = await manager._run(worker, "the prompt", None)
+
+    assert send_called
+    assert len(lines_calls) == 1
+    assert response == "the answer"
+
+
+# -------------------------------------------------------------------------------------
+# ---------------------------- response extraction tests ------------------------------
+# -------------------------------------------------------------------------------------
+
+
+def test_extract_response_basic():
+    all_lines = [
+        "old line 1",
+        "old line 2",
+        "What is 2+2?",
+        "2 + 2 = 4",
+        "❯ ",
+    ]
+    result = _extract_response(all_lines, "What is 2+2?")
+    assert result == "2 + 2 = 4"
+
+
+def test_extract_response_strips_leading_blanks():
+    all_lines = [
+        "old",
+        "prompt text here",
+        "",
+        "the answer",
+        "❯ ",
+    ]
+    result = _extract_response(all_lines, "prompt text here")
+    assert result == "the answer"
+
+
+def test_extract_response_multiline():
+    all_lines = [
+        "old",
+        "my prompt",
+        "line one",
+        "line two",
+        "line three",
+        "❯ ",
+    ]
+    result = _extract_response(all_lines, "my prompt")
+    assert "line one" in result
+    assert "line three" in result
+
+
+def test_extract_response_no_prompt_echo():
+    """Returns empty when prompt not found in pane."""
+    all_lines = [
+        "something unrelated",
+        "actual response",
+        "❯ ",
+    ]
+    result = _extract_response(all_lines, "completely different prompt xyz123")
+    assert result == ""
+
+
+def test_extract_response_prompt_indicator_variants():
+    for indicator in [">", "> ", "╰─>", "│", "❯", "❯ "]:
+        all_lines = ["old", "prompt", "response text", indicator]
+        result = _extract_response(all_lines, "prompt")
+        assert "response text" in result, f"indicator={indicator!r}"
+        assert indicator not in result, f"indicator={indicator!r} not stripped"
+
+
+def test_extract_response_strips_bullet_prefix():
+    all_lines = [
+        "my prompt",
+        "⏺ pong",
+        "❯ ",
+    ]
+    result = _extract_response(all_lines, "my prompt")
+    assert result == "pong"
+
+
+def test_extract_response_skips_meta_lines():
+    all_lines = [
+        "my prompt",
+        "⏺ the answer",
+        "✻ Sautéed for 1s",
+        "❯ ",
+    ]
+    result = _extract_response(all_lines, "my prompt")
+    assert result == "the answer"
+    assert "Sautéed" not in result
+
+
+def test_extract_response_separator_stops_collection():
+    all_lines = [
+        "my prompt",
+        "⏺ the answer",
+        "──────────────────────────────",
+        "❯ ",
+    ]
+    result = _extract_response(all_lines, "my prompt")
+    assert result == "the answer"
+
+
+def test_extract_response_uses_last_occurrence():
+    """When the same prompt appears twice, extract after the last one."""
+    all_lines = [
+        "my prompt",
+        "first answer",
+        "❯ ",
+        "my prompt",
+        "second answer",
+        "❯ ",
+    ]
+    result = _extract_response(all_lines, "my prompt")
+    assert result == "second answer"
