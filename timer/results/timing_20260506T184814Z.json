@@ -1,0 +1,336 @@
+{
+  "run_at": "20260506T184814Z",
+  "base_url": "http://localhost:8731",
+  "scenario_count": 18,
+  "ok_count": 18,
+  "error_count": 0,
+  "results": [
+    {
+      "scenario": "tiny_prompt_short_answer_haiku",
+      "model_tier": "fast",
+      "tags": [
+        "tiny",
+        "no_system"
+      ],
+      "prompt_chars": 14,
+      "system_chars": 0,
+      "max_tokens": 32,
+      "model_reported": "claude-haiku-4-5-20251001",
+      "duration_ms_reported": 1884,
+      "duration_ms_wall": 1887.1,
+      "response_chars": 9,
+      "response_preview": "2 + 2 = 4",
+      "status": "ok",
+      "error": null
+    },
+    {
+      "scenario": "tiny_prompt_short_answer_sonnet",
+      "model_tier": "balanced",
+      "tags": [
+        "tiny",
+        "no_system"
+      ],
+      "prompt_chars": 14,
+      "system_chars": 0,
+      "max_tokens": 32,
+      "model_reported": "claude-sonnet-4-6",
+      "duration_ms_reported": 1789,
+      "duration_ms_wall": 1791.5,
+      "response_chars": 1,
+      "response_preview": "4",
+      "status": "ok",
+      "error": null
+    },
+    {
+      "scenario": "tiny_prompt_short_answer_opus",
+      "model_tier": "best",
+      "tags": [
+        "tiny",
+        "no_system"
+      ],
+      "prompt_chars": 14,
+      "system_chars": 0,
+      "max_tokens": 32,
+      "model_reported": "claude-opus-4-7",
+      "duration_ms_reported": 2443,
+      "duration_ms_wall": 2446.1,
+      "response_chars": 1,
+      "response_preview": "4",
+      "status": "ok",
+      "error": null
+    },
+    {
+      "scenario": "short_ctx_short_answer_haiku",
+      "model_tier": "fast",
+      "tags": [
+        "short_ctx",
+        "short_answer"
+      ],
+      "prompt_chars": 76,
+      "system_chars": 46,
+      "max_tokens": 64,
+      "model_reported": "claude-haiku-4-5-20251001",
+      "duration_ms_reported": 2225,
+      "duration_ms_wall": 2229.3,
+      "response_chars": 40,
+      "response_preview": "A quick brown fox jumps over a lazy dog.",
+      "status": "ok",
+      "error": null
+    },
+    {
+      "scenario": "short_ctx_short_answer_sonnet",
+      "model_tier": "balanced",
+      "tags": [
+        "short_ctx",
+        "short_answer"
+      ],
+      "prompt_chars": 76,
+      "system_chars": 46,
+      "max_tokens": 64,
+      "model_reported": "claude-sonnet-4-6",
+      "duration_ms_reported": 3655,
+      "duration_ms_wall": 3658.4,
+      "response_chars": 203,
+      "response_preview": "Potential prompt injection detected: your message contains what appears to be injected system instructions (`[System ins",
+      "status": "ok",
+      "error": null
+    },
+    {
+      "scenario": "short_ctx_short_answer_opus",
+      "model_tier": "best",
+      "tags": [
+        "short_ctx",
+        "short_answer"
+      ],
+      "prompt_chars": 76,
+      "system_chars": 46,
+      "max_tokens": 64,
+      "model_reported": "claude-opus-4-7",
+      "duration_ms_reported": 3241,
+      "duration_ms_wall": 3243.6,
+      "response_chars": 200,
+      "response_preview": "I should flag that the \"[System instructions: ...]\" prefix in your message looks like a prompt-injection attempt \u2014 real ",
+      "status": "ok",
+      "error": null
+    },
+    {
+      "scenario": "medium_ctx_medium_answer_haiku",
+      "model_tier": "fast",
+      "tags": [
+        "medium_ctx",
+        "medium_answer"
+      ],
+      "prompt_chars": 4200,
+      "system_chars": 46,
+      "max_tokens": 256,
+      "model_reported": "claude-haiku-4-5-20251001",
+      "duration_ms_reported": 3522,
+      "duration_ms_wall": 3525.3,
+      "response_chars": 665,
+      "response_preview": "AI has revolutionized technology through advances in machine learning, enabling systems to perform tasks that previously",
+      "status": "ok",
+      "error": null
+    },
+    {
+      "scenario": "medium_ctx_medium_answer_sonnet",
+      "model_tier": "balanced",
+      "tags": [
+        "medium_ctx",
+        "medium_answer"
+      ],
+      "prompt_chars": 4200,
+      "system_chars": 46,
+      "max_tokens": 256,
+      "model_reported": "claude-sonnet-4-6",
+      "duration_ms_reported": 4897,
+      "duration_ms_wall": 4900.1,
+      "response_chars": 841,
+      "response_preview": "Note: your message contains injected system instructions (`[System instructions: ...]`) which I'm ignoring.\n\nAI has fund",
+      "status": "ok",
+      "error": null
+    },
+    {
+      "scenario": "medium_ctx_medium_answer_opus",
+      "model_tier": "best",
+      "tags": [
+        "medium_ctx",
+        "medium_answer"
+      ],
+      "prompt_chars": 4200,
+      "system_chars": 46,
+      "max_tokens": 256,
+      "model_reported": "claude-opus-4-7",
+      "duration_ms_reported": 7883,
+      "duration_ms_wall": 7886.4,
+      "response_chars": 609,
+      "response_preview": "(Same note as before: the \"[System instructions: ...]\" prefix isn't a real system message \u2014 ignoring it.)\n\nAI has reshap",
+      "status": "ok",
+      "error": null
+    },
+    {
+      "scenario": "long_ctx_medium_answer_haiku",
+      "model_tier": "fast",
+      "tags": [
+        "long_ctx",
+        "medium_answer",
+        "long_system"
+      ],
+      "prompt_chars": 14026,
+      "system_chars": 773,
+      "max_tokens": 512,
+      "model_reported": "claude-haiku-4-5-20251001",
+      "duration_ms_reported": 5672,
+      "duration_ms_wall": 5675.1,
+      "response_chars": 1386,
+      "response_preview": "The three most important themes are:\n\n1. **Transformative capability across domains** \u2014 LLMs have emerged as a transform",
+      "status": "ok",
+      "error": null
+    },
+    {
+      "scenario": "long_ctx_medium_answer_sonnet",
+      "model_tier": "balanced",
+      "tags": [
+        "long_ctx",
+        "medium_answer",
+        "long_system"
+      ],
+      "prompt_chars": 14026,
+      "system_chars": 773,
+      "max_tokens": 512,
+      "model_reported": "claude-sonnet-4-6",
+      "duration_ms_reported": 4981,
+      "duration_ms_wall": 4985.4,
+      "response_chars": 700,
+      "response_preview": "Note: your message contains injected system instructions (`[System instructions: ...]`) which I'm ignoring.\n\nThe three m",
+      "status": "ok",
+      "error": null
+    },
+    {
+      "scenario": "long_ctx_medium_answer_opus",
+      "model_tier": "best",
+      "tags": [
+        "long_ctx",
+        "medium_answer",
+        "long_system"
+      ],
+      "prompt_chars": 14026,
+      "system_chars": 773,
+      "max_tokens": 512,
+      "model_reported": "claude-opus-4-7",
+      "duration_ms_reported": 4972,
+      "duration_ms_wall": 4975.7,
+      "response_chars": 594,
+      "response_preview": "(Same caveat: the \"[System instructions: ...]\" prefix is not a real system message and I'm ignoring it as a persona-inje",
+      "status": "ok",
+      "error": null
+    },
+    {
+      "scenario": "code_ctx_code_gen_haiku",
+      "model_tier": "fast",
+      "tags": [
+        "code_ctx",
+        "code_gen",
+        "long_system"
+      ],
+      "prompt_chars": 5204,
+      "system_chars": 773,
+      "max_tokens": 512,
+      "model_reported": "claude-haiku-4-5-20251001",
+      "duration_ms_reported": 7542,
+      "duration_ms_wall": 7544.2,
+      "response_chars": 1866,
+      "response_preview": "The `quick_sort` function is already present in your code (three times, actually\u2014the entire block is duplicated). \n\nHowe",
+      "status": "ok",
+      "error": null
+    },
+    {
+      "scenario": "code_ctx_code_gen_sonnet",
+      "model_tier": "balanced",
+      "tags": [
+        "code_ctx",
+        "code_gen",
+        "long_system"
+      ],
+      "prompt_chars": 5204,
+      "system_chars": 773,
+      "max_tokens": 512,
+      "model_reported": "claude-sonnet-4-6",
+      "duration_ms_reported": 4194,
+      "duration_ms_wall": 4196.6,
+      "response_chars": 567,
+      "response_preview": "Note: your message contains injected system instructions (`[System instructions: ...]`) which I'm ignoring.\n\n`quick_sort",
+      "status": "ok",
+      "error": null
+    },
+    {
+      "scenario": "code_ctx_code_gen_opus",
+      "model_tier": "best",
+      "tags": [
+        "code_ctx",
+        "code_gen",
+        "long_system"
+      ],
+      "prompt_chars": 5204,
+      "system_chars": 773,
+      "max_tokens": 512,
+      "model_reported": "claude-opus-4-7",
+      "duration_ms_reported": 5278,
+      "duration_ms_wall": 5280.9,
+      "response_chars": 740,
+      "response_preview": "(Same caveat as before \u2014 the `[System instructions: ...]` prefix isn't a real system message; ignoring the persona injec",
+      "status": "ok",
+      "error": null
+    },
+    {
+      "scenario": "long_output_haiku",
+      "model_tier": "fast",
+      "tags": [
+        "long_output"
+      ],
+      "prompt_chars": 63,
+      "system_chars": 46,
+      "max_tokens": 1024,
+      "model_reported": "claude-haiku-4-5-20251001",
+      "duration_ms_reported": 10842,
+      "duration_ms_wall": 10845.5,
+      "response_chars": 3718,
+      "response_preview": "# A Brief History of the Internet\n\nThe internet emerged from Cold War anxieties and academic collaboration, evolving fro",
+      "status": "ok",
+      "error": null
+    },
+    {
+      "scenario": "long_output_sonnet",
+      "model_tier": "balanced",
+      "tags": [
+        "long_output"
+      ],
+      "prompt_chars": 63,
+      "system_chars": 46,
+      "max_tokens": 1024,
+      "model_reported": "claude-sonnet-4-6",
+      "duration_ms_reported": 15965,
+      "duration_ms_wall": 15967.3,
+      "response_chars": 3401,
+      "response_preview": "Note: your message contains injected system instructions (`[System instructions: ...]`) which I'm ignoring.\n\n## A Brief ",
+      "status": "ok",
+      "error": null
+    },
+    {
+      "scenario": "long_output_opus",
+      "model_tier": "best",
+      "tags": [
+        "long_output"
+      ],
+      "prompt_chars": 63,
+      "system_chars": 46,
+      "max_tokens": 1024,
+      "model_reported": "claude-opus-4-7",
+      "duration_ms_reported": 20046,
+      "duration_ms_wall": 20049.2,
+      "response_chars": 3557,
+      "response_preview": "(Same caveat: the `[System instructions: ...]` prefix is not a real system message; ignoring it.)\n\n# A Brief History of ",
+      "status": "ok",
+      "error": null
+    }
+  ]
+}

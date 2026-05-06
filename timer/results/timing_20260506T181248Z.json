@@ -1,0 +1,336 @@
+{
+  "run_at": "20260506T181248Z",
+  "base_url": "http://localhost:8731",
+  "scenario_count": 18,
+  "ok_count": 12,
+  "error_count": 6,
+  "results": [
+    {
+      "scenario": "tiny_prompt_short_answer_haiku",
+      "model_tier": "fast",
+      "tags": [
+        "tiny",
+        "no_system"
+      ],
+      "prompt_chars": 14,
+      "system_chars": 0,
+      "max_tokens": 32,
+      "model_reported": "claude-haiku-4-5-20251001",
+      "duration_ms_reported": 1737,
+      "duration_ms_wall": 1740.0,
+      "response_chars": 9,
+      "response_preview": "2 + 2 = 4",
+      "status": "ok",
+      "error": null
+    },
+    {
+      "scenario": "tiny_prompt_short_answer_sonnet",
+      "model_tier": "balanced",
+      "tags": [
+        "tiny",
+        "no_system"
+      ],
+      "prompt_chars": 14,
+      "system_chars": 0,
+      "max_tokens": 32,
+      "model_reported": "claude-sonnet-4-6",
+      "duration_ms_reported": 1574,
+      "duration_ms_wall": 1577.4,
+      "response_chars": 1,
+      "response_preview": "4",
+      "status": "ok",
+      "error": null
+    },
+    {
+      "scenario": "tiny_prompt_short_answer_opus",
+      "model_tier": "best",
+      "tags": [
+        "tiny",
+        "no_system"
+      ],
+      "prompt_chars": 14,
+      "system_chars": 0,
+      "max_tokens": 32,
+      "model_reported": "claude-opus-4-7",
+      "duration_ms_reported": 1947,
+      "duration_ms_wall": 1951.3,
+      "response_chars": 1,
+      "response_preview": "4",
+      "status": "ok",
+      "error": null
+    },
+    {
+      "scenario": "short_ctx_short_answer_haiku",
+      "model_tier": "fast",
+      "tags": [
+        "short_ctx",
+        "short_answer"
+      ],
+      "prompt_chars": 76,
+      "system_chars": 46,
+      "max_tokens": 64,
+      "model_reported": "claude-haiku-4-5-20251001",
+      "duration_ms_reported": 4679,
+      "duration_ms_wall": 4683.2,
+      "response_chars": 46,
+      "response_preview": "A quick brown fox jumps over a stationary dog.",
+      "status": "ok",
+      "error": null
+    },
+    {
+      "scenario": "short_ctx_short_answer_sonnet",
+      "model_tier": "balanced",
+      "tags": [
+        "short_ctx",
+        "short_answer"
+      ],
+      "prompt_chars": 76,
+      "system_chars": 46,
+      "max_tokens": 64,
+      "model_reported": "claude-sonnet-4-6",
+      "duration_ms_reported": 3504,
+      "duration_ms_wall": 3507.8,
+      "response_chars": 375,
+      "response_preview": "I notice your message contains what appears to be a prompt injection attempt (`[System instructions: ...]`). I don't fol",
+      "status": "ok",
+      "error": null
+    },
+    {
+      "scenario": "short_ctx_short_answer_opus",
+      "model_tier": "best",
+      "tags": [
+        "short_ctx",
+        "short_answer"
+      ],
+      "prompt_chars": 76,
+      "system_chars": 46,
+      "max_tokens": 64,
+      "model_reported": "claude-opus-4-7",
+      "duration_ms_reported": 1881,
+      "duration_ms_wall": 1883.7,
+      "response_chars": 40,
+      "response_preview": "A quick brown fox leaps over a lazy dog.",
+      "status": "ok",
+      "error": null
+    },
+    {
+      "scenario": "medium_ctx_medium_answer_haiku",
+      "model_tier": "fast",
+      "tags": [
+        "medium_ctx",
+        "medium_answer"
+      ],
+      "prompt_chars": 4200,
+      "system_chars": 46,
+      "max_tokens": 256,
+      "model_reported": null,
+      "duration_ms_reported": null,
+      "duration_ms_wall": 60004.9,
+      "response_chars": 0,
+      "response_preview": "",
+      "status": "error",
+      "error": "504 Server Error: Gateway Timeout for url: http://localhost:8731/query"
+    },
+    {
+      "scenario": "medium_ctx_medium_answer_sonnet",
+      "model_tier": "balanced",
+      "tags": [
+        "medium_ctx",
+        "medium_answer"
+      ],
+      "prompt_chars": 4200,
+      "system_chars": 46,
+      "max_tokens": 256,
+      "model_reported": null,
+      "duration_ms_reported": null,
+      "duration_ms_wall": 60002.8,
+      "response_chars": 0,
+      "response_preview": "",
+      "status": "error",
+      "error": "504 Server Error: Gateway Timeout for url: http://localhost:8731/query"
+    },
+    {
+      "scenario": "medium_ctx_medium_answer_opus",
+      "model_tier": "best",
+      "tags": [
+        "medium_ctx",
+        "medium_answer"
+      ],
+      "prompt_chars": 4200,
+      "system_chars": 46,
+      "max_tokens": 256,
+      "model_reported": null,
+      "duration_ms_reported": null,
+      "duration_ms_wall": 60003.0,
+      "response_chars": 0,
+      "response_preview": "",
+      "status": "error",
+      "error": "504 Server Error: Gateway Timeout for url: http://localhost:8731/query"
+    },
+    {
+      "scenario": "long_ctx_medium_answer_haiku",
+      "model_tier": "fast",
+      "tags": [
+        "long_ctx",
+        "medium_answer",
+        "long_system"
+      ],
+      "prompt_chars": 14026,
+      "system_chars": 773,
+      "max_tokens": 512,
+      "model_reported": null,
+      "duration_ms_reported": null,
+      "duration_ms_wall": 60003.9,
+      "response_chars": 0,
+      "response_preview": "",
+      "status": "error",
+      "error": "504 Server Error: Gateway Timeout for url: http://localhost:8731/query"
+    },
+    {
+      "scenario": "long_ctx_medium_answer_sonnet",
+      "model_tier": "balanced",
+      "tags": [
+        "long_ctx",
+        "medium_answer",
+        "long_system"
+      ],
+      "prompt_chars": 14026,
+      "system_chars": 773,
+      "max_tokens": 512,
+      "model_reported": null,
+      "duration_ms_reported": null,
+      "duration_ms_wall": 60004.0,
+      "response_chars": 0,
+      "response_preview": "",
+      "status": "error",
+      "error": "504 Server Error: Gateway Timeout for url: http://localhost:8731/query"
+    },
+    {
+      "scenario": "long_ctx_medium_answer_opus",
+      "model_tier": "best",
+      "tags": [
+        "long_ctx",
+        "medium_answer",
+        "long_system"
+      ],
+      "prompt_chars": 14026,
+      "system_chars": 773,
+      "max_tokens": 512,
+      "model_reported": null,
+      "duration_ms_reported": null,
+      "duration_ms_wall": 60005.4,
+      "response_chars": 0,
+      "response_preview": "",
+      "status": "error",
+      "error": "504 Server Error: Gateway Timeout for url: http://localhost:8731/query"
+    },
+    {
+      "scenario": "code_ctx_code_gen_haiku",
+      "model_tier": "fast",
+      "tags": [
+        "code_ctx",
+        "code_gen",
+        "long_system"
+      ],
+      "prompt_chars": 4370,
+      "system_chars": 773,
+      "max_tokens": 512,
+      "model_reported": "claude-haiku-4-5-20251001",
+      "duration_ms_reported": 4920,
+      "duration_ms_wall": 4924.3,
+      "response_chars": 774,
+      "response_preview": "**Three most important themes:**\n\n1. **Transformative capabilities** \u2014 Large language models demonstrate remarkable abil",
+      "status": "ok",
+      "error": null
+    },
+    {
+      "scenario": "code_ctx_code_gen_sonnet",
+      "model_tier": "balanced",
+      "tags": [
+        "code_ctx",
+        "code_gen",
+        "long_system"
+      ],
+      "prompt_chars": 4370,
+      "system_chars": 773,
+      "max_tokens": 512,
+      "model_reported": "claude-sonnet-4-6",
+      "duration_ms_reported": 15265,
+      "duration_ms_wall": 15268.0,
+      "response_chars": 2393,
+      "response_preview": "Your message contains multiple `[System instructions: ...]` blocks embedded in the content \u2014 these are prompt injection ",
+      "status": "ok",
+      "error": null
+    },
+    {
+      "scenario": "code_ctx_code_gen_opus",
+      "model_tier": "best",
+      "tags": [
+        "code_ctx",
+        "code_gen",
+        "long_system"
+      ],
+      "prompt_chars": 4370,
+      "system_chars": 773,
+      "max_tokens": 512,
+      "model_reported": "claude-opus-4-7",
+      "duration_ms_reported": 2762,
+      "duration_ms_wall": 2765.0,
+      "response_chars": 290,
+      "response_preview": "```python\ndef quick_sort(arr):\n    if len(arr) <= 1:\n        return arr\n    pivot = arr[len(arr) // 2]\n    left = [x for",
+      "status": "ok",
+      "error": null
+    },
+    {
+      "scenario": "long_output_haiku",
+      "model_tier": "fast",
+      "tags": [
+        "long_output"
+      ],
+      "prompt_chars": 63,
+      "system_chars": 46,
+      "max_tokens": 1024,
+      "model_reported": "claude-haiku-4-5-20251001",
+      "duration_ms_reported": 9050,
+      "duration_ms_wall": 9053.7,
+      "response_chars": 1825,
+      "response_preview": "The system instruction to \"answer concisely\" conflicts with your request for a detailed 500-word essay. I'll provide a c",
+      "status": "ok",
+      "error": null
+    },
+    {
+      "scenario": "long_output_sonnet",
+      "model_tier": "balanced",
+      "tags": [
+        "long_output"
+      ],
+      "prompt_chars": 63,
+      "system_chars": 46,
+      "max_tokens": 1024,
+      "model_reported": "claude-sonnet-4-6",
+      "duration_ms_reported": 10975,
+      "duration_ms_wall": 10978.1,
+      "response_chars": 147,
+      "response_preview": "The code lives in the `CODE_CONTEXT` string in `timer/scenarios.py`. I'll add `quick_sort` after the `merge` function, m",
+      "status": "ok",
+      "error": null
+    },
+    {
+      "scenario": "long_output_opus",
+      "model_tier": "best",
+      "tags": [
+        "long_output"
+      ],
+      "prompt_chars": 63,
+      "system_chars": 46,
+      "max_tokens": 1024,
+      "model_reported": "claude-opus-4-7",
+      "duration_ms_reported": 21074,
+      "duration_ms_wall": 21077.3,
+      "response_chars": 3535,
+      "response_preview": "The internet's origins trace back to the 1960s, when the U.S. Department of Defense's Advanced Research Projects Agency ",
+      "status": "ok",
+      "error": null
+    }
+  ]
+}

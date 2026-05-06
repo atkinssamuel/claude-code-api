@@ -1,0 +1,63 @@
+{
+  "run_at": "20260506T173654Z",
+  "base_url": "http://localhost:8731",
+  "scenario_count": 3,
+  "ok_count": 3,
+  "error_count": 0,
+  "results": [
+    {
+      "scenario": "tiny_prompt_short_answer_haiku",
+      "model_tier": "fast",
+      "tags": [
+        "tiny",
+        "no_system"
+      ],
+      "prompt_chars": 14,
+      "system_chars": 0,
+      "max_tokens": 32,
+      "model_reported": "claude-haiku-4-5-20251001",
+      "duration_ms_reported": 1146,
+      "duration_ms_wall": 1149.0,
+      "response_chars": 1,
+      "response_preview": "4",
+      "status": "ok",
+      "error": null
+    },
+    {
+      "scenario": "tiny_prompt_short_answer_sonnet",
+      "model_tier": "balanced",
+      "tags": [
+        "tiny",
+        "no_system"
+      ],
+      "prompt_chars": 14,
+      "system_chars": 0,
+      "max_tokens": 32,
+      "model_reported": "claude-sonnet-4-6",
+      "duration_ms_reported": 1421,
+      "duration_ms_wall": 1423.8,
+      "response_chars": 1,
+      "response_preview": "4",
+      "status": "ok",
+      "error": null
+    },
+    {
+      "scenario": "tiny_prompt_short_answer_opus",
+      "model_tier": "best",
+      "tags": [
+        "tiny",
+        "no_system"
+      ],
+      "prompt_chars": 14,
+      "system_chars": 0,
+      "max_tokens": 32,
+      "model_reported": "claude-opus-4-7",
+      "duration_ms_reported": 2632,
+      "duration_ms_wall": 2634.4,
+      "response_chars": 1,
+      "response_preview": "4",
+      "status": "ok",
+      "error": null
+    }
+  ]
+}

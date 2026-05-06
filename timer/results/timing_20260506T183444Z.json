@@ -1,0 +1,63 @@
+{
+  "run_at": "20260506T183444Z",
+  "base_url": "http://localhost:8731",
+  "scenario_count": 3,
+  "ok_count": 0,
+  "error_count": 3,
+  "results": [
+    {
+      "scenario": "medium_ctx_medium_answer_haiku",
+      "model_tier": "fast",
+      "tags": [
+        "medium_ctx",
+        "medium_answer"
+      ],
+      "prompt_chars": 4200,
+      "system_chars": 46,
+      "max_tokens": 256,
+      "model_reported": null,
+      "duration_ms_reported": null,
+      "duration_ms_wall": 60006.6,
+      "response_chars": 0,
+      "response_preview": "",
+      "status": "error",
+      "error": "504 Server Error: Gateway Timeout for url: http://localhost:8731/query"
+    },
+    {
+      "scenario": "medium_ctx_medium_answer_sonnet",
+      "model_tier": "balanced",
+      "tags": [
+        "medium_ctx",
+        "medium_answer"
+      ],
+      "prompt_chars": 4200,
+      "system_chars": 46,
+      "max_tokens": 256,
+      "model_reported": null,
+      "duration_ms_reported": null,
+      "duration_ms_wall": 60005.1,
+      "response_chars": 0,
+      "response_preview": "",
+      "status": "error",
+      "error": "504 Server Error: Gateway Timeout for url: http://localhost:8731/query"
+    },
+    {
+      "scenario": "medium_ctx_medium_answer_opus",
+      "model_tier": "best",
+      "tags": [
+        "medium_ctx",
+        "medium_answer"
+      ],
+      "prompt_chars": 4200,
+      "system_chars": 46,
+      "max_tokens": 256,
+      "model_reported": null,
+      "duration_ms_reported": null,
+      "duration_ms_wall": 60005.9,
+      "response_chars": 0,
+      "response_preview": "",
+      "status": "error",
+      "error": "504 Server Error: Gateway Timeout for url: http://localhost:8731/query"
+    }
+  ]
+}

@@ -78,12 +78,15 @@ def _count_assistant_text_entries(transcript_path: str) -> int:
     return count
 
 
-def _read_transcript(transcript_path: str) -> str:
-    """Extract the last assistant text from a claude transcript jsonl file.
+def _read_transcript(transcript_path: str, target_index: int) -> str:
+    """Return the assistant text at the given 0-based index in the transcript.
 
-    Entries use top-level "type": "assistant" with content under entry["message"]["content"].
+    Each `\n` in pasted content submits that line as a separate message, so a
+    single user request may produce several assistant turns before the real
+    response. `target_index` (= entries_before at dispatch time) lets us skip
+    the spurious earlier turns and read exactly the right one.
     """
-    last_text = ""
+    entries: list[str] = []
 
     try:
         with open(transcript_path) as f:
@@ -101,27 +104,35 @@ def _read_transcript(transcript_path: str) -> str:
                     continue
 
                 content = entry.get("message", {}).get("content", [])
+                text = ""
 
                 if isinstance(content, str):
-                    if content:
-                        last_text = content
+                    text = content
                 elif isinstance(content, list):
                     parts = [
                         block["text"]
                         for block in content
                         if isinstance(block, dict) and block.get("type") == "text"
                     ]
-                    if parts:
-                        last_text = "\n".join(parts)
+                    text = "\n".join(parts)
+
+                if text:
+                    entries.append(text)
 
     except OSError as e:
         log.error("_read_transcript: path=%s error=%s", transcript_path, e)
 
+    result = entries[target_index] if target_index < len(entries) else ""
+
     log.debug(
-        "_read_transcript: path=%s response_len=%d", transcript_path, len(last_text)
+        "_read_transcript: path=%s target_index=%d total_entries=%d response_len=%d",
+        transcript_path,
+        target_index,
+        len(entries),
+        len(result),
     )
 
-    return last_text
+    return result
 
 
 # -------------------------------------------------------------------------------------
@@ -142,7 +153,12 @@ class TmuxWorker:
     last_transcript_path: str = ""
     assistant_entries_before: int = 0
     startup_event: asyncio.Event = field(default_factory=asyncio.Event)
-    completion_event: asyncio.Event = field(default_factory=asyncio.Event)
+
+    # Queue of transcript_path strings pushed by Stop hooks.
+    # Using a queue instead of an event lets _await_response re-check the
+    # transcript after write lag without losing notifications, and naturally
+    # handles spurious hooks from the second empty-Enter submission.
+    stop_queue: asyncio.Queue = field(default_factory=asyncio.Queue)
 
 
 class ModelPool:
@@ -248,15 +264,13 @@ class PoolManager:
             log.warning("signal_worker_done: unknown worker_id=%d", worker_id)
             return
 
-        worker.last_transcript_path = transcript_path
-
         log.debug(
             "signal_worker_done: worker=%d transcript=%s",
             worker_id,
             transcript_path,
         )
 
-        worker.completion_event.set()
+        worker.stop_queue.put_nowait(transcript_path)
 
     async def query(
         self,
@@ -445,8 +459,6 @@ class PoolManager:
         log.debug("_write_settings: worker=%d path=%s", worker.id, worker.settings_path)
 
     async def _run(self, worker: TmuxWorker, prompt: str, system: Optional[str]) -> str:
-        worker.completion_event.clear()
-
         effective_prompt = (
             f"[System instructions: {system}]\n\n{prompt}" if system else prompt
         )
@@ -458,19 +470,24 @@ class PoolManager:
         )
 
         if worker.last_transcript_path:
-            worker.assistant_entries_before = await asyncio.to_thread(
+            entries_before = await asyncio.to_thread(
                 _count_assistant_text_entries, worker.last_transcript_path
             )
         else:
-            worker.assistant_entries_before = 0
+            entries_before = 0
+
+        worker.assistant_entries_before = entries_before
 
         await self._send_prompt(worker, effective_prompt)
 
-        log.debug("_run: worker=%d prompt sent, awaiting Stop hook entries_before=%d", worker.id, worker.assistant_entries_before)
+        log.debug(
+            "_run: worker=%d prompt sent, awaiting Stop hook entries_before=%d",
+            worker.id,
+            entries_before,
+        )
 
-        await worker.completion_event.wait()
-
-        response = await self._read_response(worker)
+        transcript_path, response = await self._await_response(worker, entries_before)
+        worker.last_transcript_path = transcript_path
 
         log.debug(
             "_run: worker=%d response_len=%d",
@@ -480,59 +497,88 @@ class PoolManager:
 
         return response
 
-    async def _read_response(self, worker: TmuxWorker) -> str:
-        transcript_path = worker.last_transcript_path
-        entries_before = worker.assistant_entries_before
+    async def _await_response(
+        self, worker: TmuxWorker, entries_before: int
+    ) -> tuple[str, str]:
+        # Drain stale Stop-hook notifications: any hook whose transcript still
+        # has ≤ entries_before assistant text entries was produced before our
+        # prompt. We check after dequeuing (not at signal time) to handle the
+        # transcript write lag — the file may not be updated when the hook fires.
+        while True:
+            transcript_path = await worker.stop_queue.get()
 
-        if not transcript_path:
-            log.warning("_read_response: worker=%d no transcript_path", worker.id)
-            return ""
-
-        response = await asyncio.to_thread(_read_transcript, transcript_path)
-        if _count_assistant_text_entries(transcript_path) > entries_before:
             log.debug(
-                "_read_response: worker=%d transcript ready immediately response_len=%d",
+                "_await_response: worker=%d dequeued transcript=%s entries_before=%d",
                 worker.id,
-                len(response),
+                transcript_path,
+                entries_before,
             )
-            return response
 
-        # Transcript write lags slightly behind the Stop hook — watch for the update
-        log.debug(
-            "_read_response: worker=%d transcript not yet updated, watching path=%s entries_before=%d",
-            worker.id,
-            transcript_path,
-            entries_before,
-        )
+            response = await asyncio.to_thread(
+                _read_transcript, transcript_path, entries_before
+            )
 
-        try:
-            async with asyncio.timeout(10.0):
-                async for _ in awatch(transcript_path):
-                    if _count_assistant_text_entries(transcript_path) > entries_before:
-                        response = await asyncio.to_thread(
-                            _read_transcript, transcript_path
-                        )
-                        log.debug(
-                            "_read_response: worker=%d got response via watch response_len=%d",
-                            worker.id,
-                            len(response),
-                        )
-                        return response
-        except TimeoutError:
-            log.error(
-                "_read_response: worker=%d timeout waiting for transcript update path=%s",
+            if response:
+                log.debug(
+                    "_await_response: worker=%d got response immediately response_len=%d",
+                    worker.id,
+                    len(response),
+                )
+                return transcript_path, response
+
+            log.debug(
+                "_await_response: worker=%d transcript not yet updated, watching path=%s",
                 worker.id,
                 transcript_path,
             )
 
-        return response
+            try:
+                async with asyncio.timeout(10.0):
+                    async for _ in awatch(transcript_path):
+                        response = await asyncio.to_thread(
+                            _read_transcript, transcript_path, entries_before
+                        )
+                        if response:
+                            log.debug(
+                                "_await_response: worker=%d got response via watch response_len=%d",
+                                worker.id,
+                                len(response),
+                            )
+                            return transcript_path, response
+            except TimeoutError:
+                log.error(
+                    "_await_response: worker=%d timeout waiting for transcript update path=%s",
+                    worker.id,
+                    transcript_path,
+                )
+                continue
 
     async def _send_prompt(self, worker: TmuxWorker, prompt: str) -> None:
+        # Wrap in bracketed-paste markers so embedded \n characters are treated
+        # as literal newlines rather than Enter keypresses (which would submit
+        # each line as a separate message in the claude TUI's raw mode).
+        bracketed = f"\x1b[200~{prompt}\x1b[201~"
+
         with open(worker.prompt_file, "w") as f:
-            f.write(prompt + "\n")
+            f.write(bracketed)
 
         buf_name = f"w{worker.id}"
         await _tmux("load-buffer", "-b", buf_name, worker.prompt_file)
         await _tmux("paste-buffer", "-b", buf_name, "-t", worker.pane_target)
 
-        log.debug("_send_prompt: worker=%d buf=%s", worker.id, buf_name)
+        # Two Enters handle both the collapsed-paste and non-collapsed cases:
+        #   - Large pastes: the TUI collapses them and requires Enter to expand,
+        #     then a second Enter to submit.
+        #   - Small pastes: the first Enter submits; the second goes to an empty
+        #     input and triggers a trivial "how can I help?" response whose Stop
+        #     hook is harmlessly skipped by _await_response (the response entry
+        #     at entries_before+1 won't appear until our real reply is written).
+        await _tmux("send-keys", "-t", worker.pane_target, "", "Enter")
+        await _tmux("send-keys", "-t", worker.pane_target, "", "Enter")
+
+        log.debug(
+            "_send_prompt: worker=%d buf=%s prompt_len=%d",
+            worker.id,
+            buf_name,
+            len(prompt),
+        )
