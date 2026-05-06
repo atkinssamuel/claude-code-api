@@ -1,0 +1,16 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8731:8731"
+    restart: always
+    volumes:
+      - "${HOME}/.claude:/root/.claude"
+    environment:
+      - POOL_SIZE=${POOL_SIZE:-4}
+      - REQUEST_TIMEOUT_S=${REQUEST_TIMEOUT_S:-60}
+      - DEFAULT_MODEL=${DEFAULT_MODEL:-balanced}
+      - LOG_DIR=/var/log/claude-api
+    env_file:
+      - path: .env
+        required: false
