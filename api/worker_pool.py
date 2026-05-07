@@ -300,9 +300,6 @@ class PoolManager:
                 self._run(worker, prompt, system),
                 timeout=REQUEST_TIMEOUT_S,
             )
-        except asyncio.TimeoutError:
-            log.error("PoolManager.query: timeout worker=%d", worker.id)
-            raise
         except Exception as e:
             log.error(
                 "PoolManager.query: error worker=%d type=%s msg=%s",
@@ -310,9 +307,11 @@ class PoolManager:
                 type(e).__name__,
                 e,
             )
+
+            # Clear context and release worker in background so the session is
+            # fresh for the next caller, even on timeout or error.
+            asyncio.create_task(self._clear_and_release(pool, worker))
             raise
-        finally:
-            pool.release(worker)
 
         duration_ms = int((time.perf_counter() - t0) * 1000)
 
@@ -322,6 +321,10 @@ class PoolManager:
             duration_ms,
             len(response),
         )
+
+        # Fire /clear in the background — the worker re-enters the pool only
+        # after the session has restarted, so the next query always starts fresh.
+        asyncio.create_task(self._clear_and_release(pool, worker))
 
         return response, resolved_model, duration_ms
 
@@ -458,24 +461,48 @@ class PoolManager:
 
         log.debug("_write_settings: worker=%d path=%s", worker.id, worker.settings_path)
 
+    async def _clear_context(self, worker: TmuxWorker) -> None:
+        """Send /clear and wait for the session to restart before returning.
+
+        /clear fires a SessionStart hook (not a Stop hook). We clear startup_event
+        first and await it so we know the session is fully restarted.
+        """
+        log.debug("_clear_context: worker=%d sending /clear", worker.id)
+        worker.startup_event.clear()
+        worker.last_transcript_path = None
+        await _tmux("send-keys", "-t", worker.pane_target, "/clear", "Enter")
+        await worker.startup_event.wait()
+        log.debug("_clear_context: worker=%d session restarted and ready", worker.id)
+
+    async def _clear_and_release(self, pool: ModelPool, worker: TmuxWorker) -> None:
+        """Clear the worker's session then release it back to the pool.
+
+        Called as a background task after a response is returned, so the caller
+        is never blocked by the /clear round-trip.
+        """
+        log.debug("_clear_and_release: worker=%d starting", worker.id)
+        try:
+            await self._clear_context(worker)
+        except Exception as e:
+            log.error(
+                "_clear_and_release: worker=%d clear failed type=%s msg=%s",
+                worker.id,
+                type(e).__name__,
+                e,
+            )
+        finally:
+            pool.release(worker)
+        log.debug("_clear_and_release: worker=%d released", worker.id)
+
     async def _run(self, worker: TmuxWorker, prompt: str, system: Optional[str]) -> str:
         effective_prompt = (
             f"[System instructions: {system}]\n\n{prompt}" if system else prompt
         )
 
-        log.debug(
-            "_run: worker=%d prompt=%s",
-            worker.id,
-            effective_prompt[:80],
-        )
+        log.debug("_run: worker=%d prompt=%s", worker.id, effective_prompt[:80])
 
-        if worker.last_transcript_path:
-            entries_before = await asyncio.to_thread(
-                _count_assistant_text_entries, worker.last_transcript_path
-            )
-        else:
-            entries_before = 0
-
+        # Session is already fresh (cleared after the previous query).
+        entries_before = 0
         worker.assistant_entries_before = entries_before
 
         await self._send_prompt(worker, effective_prompt)

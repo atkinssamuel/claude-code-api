@@ -49,6 +49,10 @@ def _instant_run(response: str = "ok"):
     return _inner
 
 
+async def _instant_clear(worker: TmuxWorker) -> None:
+    pass
+
+
 # -------------------------------------------------------------------------------------
 # ---------------------------------- fixtures -----------------------------------------
 # -------------------------------------------------------------------------------------
@@ -117,7 +121,10 @@ async def test_query_success(client):
     manager = _make_manager()
     app.dependency_overrides[get_pool_manager] = lambda: manager
 
-    with patch.object(manager, "_run", _instant_run("4")):
+    with (
+        patch.object(manager, "_run", _instant_run("4")),
+        patch.object(manager, "_clear_context", _instant_clear),
+    ):
         resp = await client.post(
             "/query", json={"prompt": "what is 2+2", "model": "fast"}
         )
@@ -148,7 +155,10 @@ async def test_query_model_routing(client):
         manager = _make_manager()
         app.dependency_overrides[get_pool_manager] = lambda m=manager: m
 
-        with patch.object(manager, "_run", _instant_run("ok")):
+        with (
+            patch.object(manager, "_run", _instant_run("ok")),
+            patch.object(manager, "_clear_context", _instant_clear),
+        ):
             resp = await client.post("/query", json={"prompt": "hi", "model": tier})
 
         assert resp.status_code == 200, f"tier={tier}"
@@ -164,7 +174,10 @@ async def test_query_default_model(client):
     manager = _make_manager()
     app.dependency_overrides[get_pool_manager] = lambda: manager
 
-    with patch.object(manager, "_run", _instant_run("ok")):
+    with (
+        patch.object(manager, "_run", _instant_run("ok")),
+        patch.object(manager, "_clear_context", _instant_clear),
+    ):
         resp = await client.post("/query", json={"prompt": "hi"})
 
     app.dependency_overrides.clear()
@@ -184,11 +197,16 @@ async def test_query_timeout(client):
         await asyncio.sleep(999)
         return "ok"
 
+    async def instant_clear(w):
+        pass
+
     with (
         patch.object(manager, "_run", slow_run),
+        patch.object(manager, "_clear_context", instant_clear),
         patch("api.worker_pool.REQUEST_TIMEOUT_S", 0.05),
     ):
         resp = await client.post("/query", json={"prompt": "hi"})
+        await asyncio.sleep(0)
 
     app.dependency_overrides.clear()
     assert resp.status_code == 504
@@ -232,19 +250,17 @@ async def test_internal_hook_stop(client):
     from api.main import app, get_optional_pool_manager
 
     manager = _make_manager()
-    manager._worker_registry[0].completion_event.clear()
     app.dependency_overrides[get_optional_pool_manager] = lambda: manager
 
-    with patch("api.worker_pool._read_transcript", return_value="ok"):
-        resp = await client.post(
-            "/internal/hook?worker_id=0&event=stop",
-            json={"transcript_path": "/tmp/fake.jsonl"},
-        )
+    resp = await client.post(
+        "/internal/hook?worker_id=0&event=stop",
+        json={"transcript_path": "/tmp/fake.jsonl"},
+    )
 
     app.dependency_overrides.clear()
 
     assert resp.status_code == 200
-    assert manager._worker_registry[0].completion_event.is_set()
+    assert manager._worker_registry[0].stop_queue.get_nowait() == "/tmp/fake.jsonl"
 
 
 @pytest.mark.anyio
@@ -256,7 +272,10 @@ async def test_pool_exhaustion_queues(client):
     manager = _make_manager(workers_per_model=2)
     app.dependency_overrides[get_pool_manager] = lambda: manager
 
-    with patch.object(manager, "_run", _instant_run("ok")):
+    with (
+        patch.object(manager, "_run", _instant_run("ok")),
+        patch.object(manager, "_clear_context", _instant_clear),
+    ):
         responses = await asyncio.gather(
             *[client.post("/query", json={"prompt": f"q{i}"}) for i in range(6)]
         )
